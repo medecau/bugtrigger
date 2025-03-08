@@ -10,7 +10,7 @@ from e2b_code_interpreter import Sandbox
 
 dotenv.load_dotenv()
 
-AT_REQ_PARAMS = {"timeout": 60}
+ATPROTO_TIMEOUT = 60
 
 bsky_user = os.getenv("BSKY_USER")
 bsky_pass = os.getenv("BSKY_PASS")
@@ -89,43 +89,40 @@ def main() -> None:
         last_seen_at = client.get_current_time_iso()
 
         try:
-            response = client.app.bsky.notification.list_notifications(**AT_REQ_PARAMS)
+            response = client.app.bsky.notification.list_notifications(
+                timeout=ATPROTO_TIMEOUT
+            )
         except Exception as e:
             log(msg=f"Error: {e}")
             sleep(60)
             continue
 
-        unread = [
-            notification
-            for notification in response.notifications
-            if not notification.is_read
-        ]
-        mentions = [
-            notification for notification in unread if notification.reason == "mention"
-        ]
+        allowed_reasons = {"mention", "reply"}
+        unread = [note for note in response.notifications if not note.is_read]
+        notifications = [note for note in unread if note.reason in allowed_reasons]
 
-        log(msg=f"Found {len(mentions)} new mentions")
+        log(msg=f"Found {len(notifications)} new mentions")
 
         seen = set()
-        for notification in mentions:
+        for note in notifications:
             if (
-                notification.author.viewer.blocked_by
-                or notification.author.viewer.blocking
-                or notification.author.viewer.blocking_by_list
-                or notification.author.viewer.muted
-                or notification.author.viewer.muted_by_list
+                note.author.viewer.blocked_by
+                or note.author.viewer.blocking
+                or note.author.viewer.blocking_by_list
+                or note.author.viewer.muted
+                or note.author.viewer.muted_by_list
             ):
-                log(msg=f"Skipping blocked/muted user: {notification.author.handle}")
+                log(msg=f"Skipping blocked/muted user: {note.author.handle}")
                 continue
 
-            elif notification.author.handle in seen:
-                log(msg=f"Skipping duplicate mention from {notification.author.handle}")
+            elif note.author.handle in seen:
+                log(msg=f"Skipping duplicate mention from {note.author.handle}")
                 output = "Error: Too many mentions. Please wait for a response before mentioning again."
 
             else:
-                seen.add(notification.author.handle)
+                seen.add(note.author.handle)
 
-                code = notification.record.text
+                code = note.record.text
                 shebang = code.split("\n")[0]
                 _, user, lang = shebang.split()
                 lang = lang.strip()
@@ -141,26 +138,29 @@ def main() -> None:
 
             executions.insert(
                 dict(
-                    input=notification.record.text,
+                    input=note.record.text,
                     output=output,
-                    author=notification.author.handle,
-                    url=notification.uri,
+                    author=note.author.handle,
+                    url=note.uri,
                     ts=now(),
                 )
             )
 
-            parent = {"cid": notification.cid, "uri": notification.uri}
-            if notification.record.reply:
-                reply_to = {"root": notification.record.reply.root, "parent": parent}
+            parent = {"cid": note.cid, "uri": note.uri}
+            if note.record.reply:
+                reply_to = {"root": note.record.reply.root, "parent": parent}
             else:  # this is the root post
                 reply_to = {"root": parent, "parent": parent}
 
-            client.send_post(text=output, reply_to=reply_to, **AT_REQ_PARAMS)
+            try:
+                client.send_post(text=output, reply_to=reply_to)
+            except Exception as e:
+                log(msg=f"Error: {e}")
 
         for _ in range(5):
             try:
                 client.app.bsky.notification.update_seen(
-                    {"seen_at": last_seen_at}, **AT_REQ_PARAMS
+                    {"seen_at": last_seen_at}, timeout=ATPROTO_TIMEOUT
                 )
                 break
             except Exception as e:
