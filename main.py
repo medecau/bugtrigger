@@ -52,7 +52,13 @@ def main() -> None:
     while True:
         last_seen_at = client.get_current_time_iso()
 
-        response = client.app.bsky.notification.list_notifications()
+        try:
+            response = client.app.bsky.notification.list_notifications()
+        except Exception as e:
+            log(msg=f"Error: {e}")
+            sleep(60)
+            continue
+
         unread = [
             notification
             for notification in response.notifications
