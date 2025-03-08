@@ -122,19 +122,31 @@ def main() -> None:
             else:
                 seen.add(note.author.handle)
 
-                code = note.record.text
+                code = note.record.text.strip()
+
+                if not code.startswith("#!"):
+                    log(msg="Error: Missing shebang")
+                    continue
+
                 shebang = code.split("\n")[0]
-                _, user, lang = shebang.split()
-                lang = lang.strip()
-                if user != f"@{client.me.handle}":
-                    log(msg=f"Skipping wrong user: {user}")
-                    output = "Error: Wrong interpreter."
-                else:
-                    try:
-                        output = run_code(code, lang)
-                    except Exception as e:
-                        log(msg=f"Error: {e}")
-                        output = f"Error: {e}"
+                try:
+                    _, user, lang = [part for part in shebang.split() if part]
+                    lang = lang.strip()
+                    if lang.startswith("#"):
+                        lang = lang[1:]
+
+                    if user != f"@{client.me.handle}":
+                        log(msg=f"Skipping wrong user: {user}")
+                        output = "Error: Wrong interpreter."
+                    else:
+                        try:
+                            output = run_code(code, lang)
+                        except Exception as e:
+                            log(msg=f"Error: {e}")
+                            output = f"Error: {e}"
+                except ValueError:
+                    log(msg=f"Error: Invalid shebang: {shebang}")
+                    output = "Error: Invalid shebang."
 
             executions.insert(
                 dict(
