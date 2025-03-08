@@ -10,6 +10,8 @@ from functools import lru_cache
 
 dotenv.load_dotenv()
 
+ATPROTO_TIMEOUT = 60
+
 bsky_user = os.getenv("BSKY_USER")
 bsky_pass = os.getenv("BSKY_PASS")
 
@@ -53,7 +55,7 @@ def main() -> None:
         last_seen_at = client.get_current_time_iso()
 
         try:
-            response = client.app.bsky.notification.list_notifications()
+            response = client.app.bsky.notification.list_notifications(timeout=ATPROTO_TIMEOUT)
         except Exception as e:
             log(msg=f"Error: {e}")
             sleep(60)
@@ -119,9 +121,10 @@ def main() -> None:
             else:  # this is the root post
                 reply_to = {"root": parent, "parent": parent}
 
-            client.send_post(text=output, reply_to=reply_to)
+            client.send_post(text=output, reply_to=reply_to, timeout=ATPROTO_TIMEOUT)
 
-        client.app.bsky.notification.update_seen({"seen_at": last_seen_at})
+
+        client.app.bsky.notification.update_seen({"seen_at": last_seen_at}, timeout=ATPROTO_TIMEOUT)
         print("Sleeping...")
 
         if seen:
