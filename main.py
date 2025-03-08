@@ -123,9 +123,13 @@ def main() -> None:
 
             client.send_post(text=output, reply_to=reply_to, timeout=ATPROTO_TIMEOUT)
 
-
-        client.app.bsky.notification.update_seen({"seen_at": last_seen_at}, timeout=ATPROTO_TIMEOUT)
-        print("Sleeping...")
+        for _ in range(5):
+            try:
+                client.app.bsky.notification.update_seen({"seen_at": last_seen_at}, timeout=ATPROTO_TIMEOUT)
+                break
+            except Exception as e:
+                log(msg=f"Error: {e}")
+                sleep(60)
 
         if seen:
             sleep(60)
