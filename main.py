@@ -1,16 +1,16 @@
 import datetime as dt
 import os
+from functools import lru_cache
 from time import sleep
 
 import dataset
 import dotenv
 from atproto import Client
 from e2b_code_interpreter import Sandbox
-from functools import lru_cache
 
 dotenv.load_dotenv()
 
-ATPROTO_TIMEOUT = 60
+AT_REQ_PARAMS = {"timeout": 60}
 
 bsky_user = os.getenv("BSKY_USER")
 bsky_pass = os.getenv("BSKY_PASS")
@@ -28,8 +28,9 @@ def log(msg: str):
 def now() -> dt.datetime:
     return dt.datetime.now(dt.timezone.utc)
 
+
 @lru_cache
-def run_code(code: str, lang:str) -> str:
+def run_code(code: str, lang: str) -> str:
     sbx = Sandbox()
     execution = sbx.run_code(code, language=lang, timeout=2)
     sbx.kill()
@@ -55,7 +56,7 @@ def main() -> None:
         last_seen_at = client.get_current_time_iso()
 
         try:
-            response = client.app.bsky.notification.list_notifications(timeout=ATPROTO_TIMEOUT)
+            response = client.app.bsky.notification.list_notifications(**AT_REQ_PARAMS)
         except Exception as e:
             log(msg=f"Error: {e}")
             sleep(60)
@@ -95,7 +96,7 @@ def main() -> None:
                 shebang = code.split("\n")[0]
                 _, user, lang = shebang.split()
                 lang = lang.strip()
-                if user != f'@{client.me.handle}':
+                if user != f"@{client.me.handle}":
                     log(msg=f"Skipping wrong user: {user}")
                     output = "Error: Wrong interpreter."
                 else:
@@ -121,11 +122,13 @@ def main() -> None:
             else:  # this is the root post
                 reply_to = {"root": parent, "parent": parent}
 
-            client.send_post(text=output, reply_to=reply_to, timeout=ATPROTO_TIMEOUT)
+            client.send_post(text=output, reply_to=reply_to, **AT_REQ_PARAMS)
 
         for _ in range(5):
             try:
-                client.app.bsky.notification.update_seen({"seen_at": last_seen_at}, timeout=ATPROTO_TIMEOUT)
+                client.app.bsky.notification.update_seen(
+                    {"seen_at": last_seen_at}, **AT_REQ_PARAMS
+                )
                 break
             except Exception as e:
                 log(msg=f"Error: {e}")
