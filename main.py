@@ -5,7 +5,7 @@ from time import sleep
 
 import dataset
 import dotenv
-from atproto import Client
+from atproto import Client, Session, SessionEvent
 from e2b_code_interpreter import Sandbox
 
 dotenv.load_dotenv()
@@ -48,10 +48,43 @@ def run_code(code: str, lang: str) -> str:
     return output
 
 
-def main() -> None:
-    client = Client()
-    client.login(bsky_user, bsky_pass)
+def get_session() -> str | None:
+    try:
+        with open("session.txt", encoding="UTF-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return None
 
+
+def save_session(session_string: str) -> None:
+    with open("session.txt", "w", encoding="UTF-8") as f:
+        f.write(session_string)
+
+
+def on_session_change(event: SessionEvent, session: Session) -> None:
+    print("Session changed:", event, repr(session))
+    if event in (SessionEvent.CREATE, SessionEvent.REFRESH):
+        print("Saving changed session")
+        save_session(session.export())
+
+
+def init_client() -> Client:
+    client = Client()
+    client.on_session_change(on_session_change)
+
+    session_string = get_session()
+    if session_string:
+        print("Reusing session")
+        client.login(session_string=session_string)
+    else:
+        print("Creating new session")
+        client.login(bsky_user, bsky_pass)
+
+    return client
+
+
+def main() -> None:
+    client = init_client()
     while True:
         last_seen_at = client.get_current_time_iso()
 
