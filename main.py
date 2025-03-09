@@ -51,6 +51,27 @@ def run_code(code: str, lang: str) -> str:
     return output
 
 
+HELLO_MESSAGE = """
+HELLO WORLD!
+
+I AM A BOT THAT WILL EXECUTE YOUR CODE.
+PUT THIS ON THE FIRST LINE OF YOUR POST:
+#! @runcode.bsky.social python
+AND THEN WRITE YOUR CODE.
+
+DM ISSUES TO @medecau.bsky.social
+
+BE KIND AND ENJOY! 
+""".strip()
+
+BOOTSTRAP = """
+import json, base64
+bsky = json.loads(base64.b64decode({payload}).decode())
+def say_hello():
+  print('''{HELLO_MESSAGE}''')
+""".strip()
+
+
 def handle_note(client, note):
     shebang, code = note.record.text.strip().split("\n", maxsplit=1)
 
@@ -64,18 +85,21 @@ def handle_note(client, note):
         lang = lang[1:]
 
     if lang == "python":
-        resp = client.get_posts(
-            [note.record.reply.parent.uri, note.record.reply.root.uri]
-        )
+        if note.reason == "reply":
+            resp = client.get_posts(
+                [note.record.reply.parent.uri, note.record.reply.root.uri]
+            )
 
-        posts = [
-            {"author": post.author.handle, "text": post.record.text}
-            for post in resp.posts
-        ]
-        payload = base64.b64encode(
-            json.dumps({"parent": posts[0], "root": posts[1]}).encode()
-        )
-        boostrap = f"import json, base64\nbsky = json.loads(base64.b64decode({payload}).decode())\n"
+            posts = [
+                {"author": post.author.handle, "text": post.record.text}
+                for post in resp.posts
+            ]
+            payload = base64.b64encode(
+                json.dumps({"parent": posts[0], "root": posts[1]}).encode()
+            )
+        else:
+            payload = base64.b64encode(json.dumps(None).encode())
+        boostrap = BOOTSTRAP.format(payload=payload, HELLO_MESSAGE=HELLO_MESSAGE)
         code = f"{boostrap}\n{code}"
 
     if user != f"@{client.me.handle}":
