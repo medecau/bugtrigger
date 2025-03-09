@@ -32,7 +32,7 @@ def now() -> dt.datetime:
 
 @lru_cache
 def run_code(code: str, lang: str) -> str:
-    sbx = Sandbox()
+    sbx = Sandbox(timeout=10)
     execution = sbx.run_code(code, language=lang, timeout=2)
     sbx.kill()
 
@@ -176,10 +176,7 @@ def main() -> None:
 
         update_seen(client, last_seen_at)
 
-        if seen:
-            sleep(60)
-        else:
-            sleep(30)
+        sleep(30)
 
 
 if __name__ == "__main__":
