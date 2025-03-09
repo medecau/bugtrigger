@@ -7,6 +7,7 @@ import dataset
 import dotenv
 from atproto import Client, Session, SessionEvent
 from e2b_code_interpreter import Sandbox
+from retry import retry
 
 dotenv.load_dotenv()
 
@@ -83,15 +84,10 @@ def init_client() -> Client:
     return client
 
 
+@retry(delay=30, backoff=1.1, jitter=(5, 10), max_delay=300)
 def fecth_notifications(client: Client) -> list:
-    try:
-        response = client.app.bsky.notification.list_notifications(
-            timeout=ATPROTO_TIMEOUT
-        )
-        return response.notifications
-    except Exception as e:
-        log(msg=f"Error: {e}")
-        return []
+    response = client.app.bsky.notification.list_notifications(timeout=ATPROTO_TIMEOUT)
+    return response.notifications
 
 
 def filter_notifications(notifications: list) -> list:
@@ -106,16 +102,11 @@ def filter_notifications(notifications: list) -> list:
     return list(_)
 
 
+@retry(delay=10, backoff=1.1, jitter=(5, 10), max_delay=600)
 def update_seen(client: Client, last_seen_at: str) -> None:
-    for _ in range(5):
-        try:
-            client.app.bsky.notification.update_seen(
-                {"seen_at": last_seen_at}, timeout=ATPROTO_TIMEOUT
-            )
-            break
-        except Exception as e:
-            log(msg=f"Error: {e}")
-            sleep(60)
+    client.app.bsky.notification.update_seen(
+        {"seen_at": last_seen_at}, timeout=ATPROTO_TIMEOUT
+    )
 
 
 def main() -> None:
