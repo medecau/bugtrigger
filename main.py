@@ -83,39 +83,54 @@ def init_client() -> Client:
     return client
 
 
+def fecth_notifications(client: Client) -> list:
+    try:
+        response = client.app.bsky.notification.list_notifications(
+            timeout=ATPROTO_TIMEOUT
+        )
+        return response.notifications
+    except Exception as e:
+        log(msg=f"Error: {e}")
+        return []
+
+
+def filter_notifications(notifications: list) -> list:
+    allowed_reasons = {"mention", "reply"}
+    _ = (n for n in notifications if not n.is_read)
+    _ = (n for n in _ if n.reason in allowed_reasons)
+    _ = (n for n in _ if not n.author.viewer.blocked_by)
+    _ = (n for n in _ if not n.author.viewer.blocking)
+    _ = (n for n in _ if not n.author.viewer.blocking_by_list)
+    _ = (n for n in _ if not n.author.viewer.muted)
+    _ = (n for n in _ if not n.author.viewer.muted_by_list)
+    return list(_)
+
+
+def update_seen(client: Client, last_seen_at: str) -> None:
+    for _ in range(5):
+        try:
+            client.app.bsky.notification.update_seen(
+                {"seen_at": last_seen_at}, timeout=ATPROTO_TIMEOUT
+            )
+            break
+        except Exception as e:
+            log(msg=f"Error: {e}")
+            sleep(60)
+
+
 def main() -> None:
     client = init_client()
     while True:
         last_seen_at = client.get_current_time_iso()
 
-        try:
-            response = client.app.bsky.notification.list_notifications(
-                timeout=ATPROTO_TIMEOUT
-            )
-        except Exception as e:
-            log(msg=f"Error: {e}")
-            sleep(60)
-            continue
-
-        allowed_reasons = {"mention", "reply"}
-        unread = [note for note in response.notifications if not note.is_read]
-        notifications = [note for note in unread if note.reason in allowed_reasons]
+        notifications = fecth_notifications(client)
+        notifications = filter_notifications(notifications)
 
         log(msg=f"Found {len(notifications)} new mentions")
 
         seen = set()
         for note in notifications:
-            if (
-                note.author.viewer.blocked_by
-                or note.author.viewer.blocking
-                or note.author.viewer.blocking_by_list
-                or note.author.viewer.muted
-                or note.author.viewer.muted_by_list
-            ):
-                log(msg=f"Skipping blocked/muted user: {note.author.handle}")
-                continue
-
-            elif note.author.handle in seen:
+            if note.author.handle in seen:
                 log(msg=f"Skipping duplicate mention from {note.author.handle}")
                 output = "Error: Too many mentions. Please wait for a response before mentioning again."
 
@@ -169,20 +184,12 @@ def main() -> None:
             except Exception as e:
                 log(msg=f"Error: {e}")
 
-        for _ in range(5):
-            try:
-                client.app.bsky.notification.update_seen(
-                    {"seen_at": last_seen_at}, timeout=ATPROTO_TIMEOUT
-                )
-                break
-            except Exception as e:
-                log(msg=f"Error: {e}")
-                sleep(60)
+        update_seen(client, last_seen_at)
 
         if seen:
             sleep(60)
         else:
-            sleep(20)
+            sleep(30)
 
 
 if __name__ == "__main__":
