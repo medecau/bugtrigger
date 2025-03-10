@@ -2,7 +2,6 @@ import base64
 import datetime as dt
 import json
 import os
-from functools import lru_cache
 from time import sleep
 
 import dataset
@@ -30,25 +29,6 @@ def log(msg: str):
 
 def now() -> dt.datetime:
     return dt.datetime.now(dt.timezone.utc)
-
-
-@lru_cache
-def run_code(code: str, lang: str) -> str:
-    sbx = Sandbox(timeout=10)
-    execution = sbx.run_code(code, language=lang, timeout=2)
-    sbx.kill()
-
-    output = "\n".join(execution.logs.stdout + execution.logs.stderr)
-    if execution.error:
-        output += f"\n{execution.error.name}: {execution.error.value}"
-
-    if len(output) > 300:
-        rightmost_newline = output[:297].rfind("\n")
-        rightmost_space = output[:297].rfind(" ")
-        cutoff = max(rightmost_newline, rightmost_space)
-        output = output[:cutoff] + "..."
-
-    return output
 
 
 HELLO_MESSAGE = """
@@ -106,21 +86,47 @@ def handle_note(client, note):
         return "Error: Wrong interpreter."
 
     try:
-        output = run_code(code, lang)
+        # Execute code directly within handle_note (previously run_code functionality)
+        sbx = Sandbox(timeout=20)
+        execution = sbx.run_code(code, language=lang, timeout=15)
+        sbx.kill()
+
+        # Process standard output
+        output = "\n".join(execution.logs.stdout + execution.logs.stderr)
+        if execution.error:
+            output += f"\n{execution.error.name}: {execution.error.value}"
+
+        if len(output) > 300:
+            rightmost_newline = output[:297].rfind("\n")
+            rightmost_space = output[:297].rfind(" ")
+            cutoff = max(rightmost_newline, rightmost_space)
+            output = output[:cutoff] + "..."
+
+        # Store execution in database for record keeping
+        executions.insert(
+            dict(
+                input=note.record.text,
+                output=output,
+                author=note.author.handle,
+                url=note.uri,
+                ts=now(),
+            )
+        )
+
+        # Return result and images
+        result = {"text": output.strip(), "images": []}
+
+        # Extract images from results (if any)
+        if hasattr(execution, "results") and execution.results:
+            for result_item in execution.results[:4]:  # Limit to 4 images max
+                if hasattr(result_item, "png") and result_item.png:
+                    # Add the image data to results
+                    result["images"].append(base64.b64decode(result_item.png))
+
+        return result
+
     except Exception as e:
         return f"Error: {e}"
-
-    executions.insert(
-        dict(
-            input=note.record.text,
-            output=output,
-            author=note.author.handle,
-            url=note.uri,
-            ts=now(),
-        )
-    )
-
-    return output.strip()
 
 
 def get_session() -> str | None:
@@ -198,10 +204,19 @@ def main() -> None:
             if note.author.handle in seen:
                 log(msg=f"Skipping duplicate mention from {note.author.handle}")
                 output = "Error: Too many mentions. Please wait for a response before mentioning again."
-
+                images = []
             else:
                 seen.add(note.author.handle)
-                output = handle_note(client, note)
+                result = handle_note(client, note)
+
+                # Handle different response types
+                if isinstance(result, dict):
+                    output = result.get("text", "")
+                    images = result.get("images", [])
+                else:
+                    # For backward compatibility or error cases
+                    output = result
+                    images = []
 
             parent = {"cid": note.cid, "uri": note.uri}
             if note.record.reply:
@@ -210,7 +225,12 @@ def main() -> None:
                 reply_to = {"root": parent, "parent": parent}
 
             try:
-                client.send_post(text=output, reply_to=reply_to)
+                if images:
+                    # Include images in the response if available
+                    client.send_images(text=output, images=images, reply_to=reply_to)
+                else:
+                    # Send text-only response
+                    client.send_post(text=output, reply_to=reply_to)
             except Exception as e:
                 log(msg=f"Error: {e}")
 
